@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "renderer_profile": { "unfurls_links": true },
+  "stream_mode": "incremental_prefix",
+  "link_handling_mode": "defang_untrusted",
+  "on_violation": "strip_node",
+  "on_error": "drop_message",
+  "rich_blocks": "inert",
+  "limits": {
+    "max_input_bytes": 1048576,
+    "max_construct_bytes": 4096,
+    "max_depth": 64,
+    "max_nodes": 10000
+  },
+  "default_heuristics": {
+    "max_uri_length": 200,
+    "max_segment_entropy": 4.2,
+    "max_path_depth": 6
+  },
+  "allowlist": {
+    "github.com": {
+      "allowed_paths": ["/my-org/my-repo/assets/*.png"],
+      "path_case_insensitive": true,
+      "allow_query": false,
+      "max_uri_length": 250
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "mcp-outbound-shield",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src tests",
+    "deps:check": "depcruise src --config .dependency-cruiser.cjs"
+  },
+  "dependencies": {
+    "parse5": "8.1.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-parse": "11.0.0",
+    "remark-stringify": "11.0.0",
+    "tldts": "7.4.19",
+    "unified": "11.0.5",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@vitest/coverage-v8": "4.1.12",
+    "dependency-cruiser": "17.4.3",
+    "eslint": "10.14.0",
+    "fast-check": "4.10.2",
+    "playwright": "1.65.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
+  }
+}
