@@ -84,3 +84,12 @@ describe("compilePathPattern: invalid patterns", () => {
     });
   }
 });
+
+describe("compilePathPattern: literals", () => {
+  it("lists segments without wildcards", () => {
+    expect(compilePathPattern("/my-org/assets/*.png", false).literals).toEqual(["my-org", "assets"]);
+    expect(compilePathPattern("/sites/pub/**", false).literals).toEqual(["sites", "pub"]);
+    expect(compilePathPattern("/a/b.png", false).literals).toEqual(["a", "b.png"]);
+    expect(compilePathPattern("/", false).literals).toEqual([]);
+  });
+});

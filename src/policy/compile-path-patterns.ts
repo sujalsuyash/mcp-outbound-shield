@@ -3,6 +3,8 @@ import { PolicyError } from "./policy-error";
 
 export interface CompiledPathPattern {
   readonly source: string;
+  /** Segments of the pattern that contain no wildcard (everything else is "dynamic"). */
+  readonly literals: readonly string[];
   /** True if the (already canonical) pathname matches this pattern. */
   readonly matches: (pathname: string) => boolean;
 }
@@ -59,7 +61,7 @@ function checkPatternSyntax(source: string, segments: string[]): void {
 
 export function compilePathPattern(source: string, caseInsensitive: boolean): CompiledPathPattern {
   if (source === "/") {
-    return { source, matches: (pathname) => pathname === "/" };
+    return { source, literals: [], matches: (pathname) => pathname === "/" };
   }
 
   const segments = source.slice(1).split("/");
@@ -85,5 +87,6 @@ export function compilePathPattern(source: string, caseInsensitive: boolean): Co
       .every((p) => PATHNAME_SEGMENT.test(p) && p !== "." && p !== "..");
   };
 
-  return { source, matches };
+  const literals = fixed.filter((segment) => !segment.includes("*"));
+  return { source, literals, matches };
 }
