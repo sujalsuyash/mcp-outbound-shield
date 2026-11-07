@@ -1,6 +1,6 @@
-# mcp-outbound-shield — Specification v0.2
+# mcp-outbound-shield — Specification v0.3
 
-This document is the contract the implementation must satisfy. It supersedes the earlier Phase 1–3 drafts. Keywords MUST/SHOULD/MAY are used in the RFC 2119 sense.
+This document is the contract the implementation must satisfy. It supersedes the earlier Phase 1–3 drafts. v0.3 clarifies the URL pipeline after the test matrix was made machine-readable (`tests/fixtures/url-matrix.ts`); where this text and the fixture disagree, fix the disagreement deliberately and update both. Keywords MUST/SHOULD/MAY are used in the RFC 2119 sense.
 
 ## 0. Principles
 
@@ -46,18 +46,20 @@ Input: `raw` (string from AST), `vector` (element/attribute or node kind), `poli
 1. **Residual entity check.** If `raw` matches `/&(#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i`, REJECT (`double_encoded`). Do not decode.
 2. **Trim and strip.** Remove leading/trailing characters ≤ U+0020. Remove all U+0009, U+000A, U+000D anywhere (WHATWG parsers ignore them).
 3. **Character gate.** Every remaining character MUST be in U+0021–U+007E. Anything else (controls, zero-width, bidi, soft hyphen, variation selectors, non-ASCII of any kind) is REJECTED (`illegal_char`). **v1 rejects all non-ASCII input, including IDN hostnames.** Operators with IDN domains list the punycode form, and documents must use it.
-4. **Delimiter gate.** REJECT any backslash. REJECT any `%25`. REJECT any `%` in the path (paths use a restricted charset, section 5). REJECT `;` in the path.
+4. **Delimiter gate.** REJECT any backslash (WHATWG parsers treat `\` as `/`). REJECT any `%25` anywhere. REJECT any `%` or `;` anywhere **before the first `?` or `#`** (this covers percent-encoded hosts like `g%69thub.com`, encoded dot-segments like `%2e%2e`, and path parameters). Percent-encoding in a query is rejected by the value charset in step 12.
 5. **Relative and protocol-relative.**
    - Starts with `//`: prefix `https:`.
-   - No scheme and not starting with `//`: relative. Allowed only if the allowlist has a `__relative__` entry; resolve against `https://__relative__.invalid/` and apply that entry's path/query rules (host check is skipped).
+   - Starts with a single `/` (absolute-path relative): allowed only if the allowlist has a `__relative__` entry. Resolve against `https://__relative__.invalid/`, apply that entry's path/query rules (the host check is skipped), and emit the **path and query only** (for example `/icons/a.png`), never the placeholder host.
+   - Any other string with no scheme (path-relative such as `icons/a.png`, or empty): REJECT (`relative_not_allowed`). Path-relative URLs resolve against the page URL or a `<base>`, which the shield cannot know.
+   - A string with a scheme (`^[a-z][a-z0-9+.-]*:`, including the forms `https:/host` and `https:host` that browsers accept) is absolute.
 6. **WHATWG parse** (`new URL`). Failure → REJECT.
 7. **Scheme.** MUST be `https:` (`http:` only if `allow_http: true`). All others REJECT, including `javascript:`, `data:`, `blob:`, `file:`, `ws:`, `wss:`, `ftp:`, `about:`.
 8. **Authority.** REJECT if username or password is non-empty. REJECT if hostname is an IPv4 form (any numeric host), starts with `[`, or ends with `.` (trailing dot).
 9. **Port.** The parser elides the default (443). If `url.port` is non-empty, the allowlist key MUST be exactly `host:port`; otherwise REJECT. Ports are never stripped.
-10. **Host match** (section 4).
-11. **Path match** (section 5), on `url.pathname` after the parser resolved `.` and `..`.
-12. **Query** (section 6).
-13. **Fragment.** Set `url.hash = ""` for auto-fetching vectors.
+10. **Host match** (section 4). Rejects with `subdomain_not_allowed` when the hostname sits under an allowlisted host that has subdomain rules but the label fails them; otherwise `host_not_allowed`.
+11. **Path match** (section 5), on `url.pathname` after the parser resolved `.` and `..`. Checks run in this order: segment charset and length (`path_charset`), depth (`path_too_deep`), then pattern match (`path_not_allowed`). A character the parser percent-encodes (for example `"`) shows up as `%` in the pathname and fails the charset check.
+12. **Query** (section 6). If `allow_query` is false, any `?` in the URL, including an empty one, rejects with `query_not_allowed`.
+13. **Fragment.** Set `url.hash = ""` for auto-fetching vectors (`markdown_image`, `markdown_definition`, `html_img_src`); setting it also removes an empty trailing `#`. Link vectors (`markdown_link`, `markdown_autolink`, `html_a_href`) keep their fragment. Reference definitions count as auto-fetch because an image can resolve to them.
 14. **Heuristics** (section 7).
 15. **Emit** `url.href`. Invariant: `evaluate(canonical) == canonical` (checked in tests).
 
@@ -78,11 +80,31 @@ Input: `raw` (string from AST), `vector` (element/attribute or node kind), `poli
 - Matching is **case-sensitive** unless the entry sets `path_case_insensitive: true` (appropriate for GitHub org/repo names). Canonical output preserves the input case.
 - Recommended pattern shape: directory prefix plus an extension, such as `/my-org/assets/*.png`.
 
+## 5a. Reject reason codes and the step that produces them
+
+| Step | Reasons |
+|---|---|
+| 1 | `double_encoded` |
+| 3 | `illegal_char` |
+| 4 | `illegal_delimiter` |
+| 5 | `relative_not_allowed` |
+| 6 | `parse_failed` |
+| 7 | `scheme_not_allowed` |
+| 8 | `credentials_present`, `ip_host`, `trailing_dot_host` |
+| 9 | `port_not_allowed` |
+| 10 | `host_not_allowed`, `subdomain_not_allowed` |
+| 11 | `path_charset`, `path_too_deep`, `path_not_allowed` |
+| 12 | `query_not_allowed`, `query_param_not_allowed`, `query_param_duplicate`, `query_value_invalid` |
+| 14 | `uri_too_long`, `base64_signature`, `hex_run`, `high_entropy` |
+| any | `internal_error` (an unexpected exception; never produced by input alone) |
+
+The first failing step decides the reason. This map is mirrored in `tests/helpers/reason-step-map.ts`.
+
 ## 6. Query matching
 
 - `allow_query: false` is the default. Any non-empty `url.search` REJECTS.
 - If `allow_query: true`, the entry MUST define a non-empty `allowed_query_params`.
-  - Unlisted names, duplicate names, or more parameters than listed REJECT.
+  - The query is split on `&`. Every pair must be `name` or `name=value`; an empty pair (`?a=1&`, `?`) is `query_value_invalid`. Unlisted names (`query_param_not_allowed`; names are case-sensitive), duplicate names (`query_param_duplicate`), or more parameters than listed REJECT.
   - Values MUST match `^[A-Za-z0-9._-]*$` and be ≤ `max_param_value_length` (default 32).
   - Because of the charset, `%`, `:`, `/`, and `=` cannot appear in values; this makes nested-URL smuggling impossible by construction. The explicit nested-URL guard remains as a second check (reject values that contain a scheme pattern `[a-z][a-z0-9+.-]*:` or parse as a URL).
 
@@ -170,6 +192,8 @@ Applies to `[text](url)`, `<a href>`, `<url>`, and bare autolinks.
 Notes: CSP path sources are prefix matches and lose path precision after redirects. CSP does not fully prevent DNS prefetch and cannot affect server-side unfurling. Rendering inside a sandboxed iframe is recommended.
 
 ## 14. Test matrix
+
+The authoritative, machine-readable matrix is `tests/fixtures/url-matrix.ts`: the T-xx rows below, plus E-xx (extra evaluator edge cases), L-xx (documented limitations that are allowed today and recorded so any change is noticed), and X-xx (extra sanitizer cases). `tests/matrix/matrix-traceability.test.ts` verifies that every reject reason, every pipeline step, and every vector is exercised, and that the expectations agree with the real WHATWG parser. Sanitizer outputs are provisional until the serializers exist.
 
 **Policy used by the matrix**
 

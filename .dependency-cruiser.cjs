@@ -11,5 +11,9 @@ module.exports = {
     { name: "csp-only-types-policy", severity: "error",
       from: { path: "^src/csp" }, to: { path: "^src/(?!types|policy|csp)" } }
   ],
-  options: { tsConfig: { fileName: "tsconfig.json" } }
+  options: {
+    doNotFollow: { path: "node_modules" },
+    tsPreCompilationDeps: true,
+    tsConfig: { fileName: "tsconfig.json" }
+  }
 };
