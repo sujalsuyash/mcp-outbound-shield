@@ -10,8 +10,7 @@
 
 Report privately using either:
 
-1. GitHub's **"Report a vulnerability"** button under the repository's **Security** tab (private vulnerability reporting), or
-2. Email: `<security contact address; set this before publishing>`
+1. GitHub's **"Report a vulnerability"** button under the repository's **Security** tab (private vulnerability reporting)
 
 Please include:
 
