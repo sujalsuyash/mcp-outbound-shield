@@ -147,16 +147,34 @@ With `rich_blocks: "inert"` (default, v1):
 
 ## 10. Link handling
 
-Applies to `[text](url)`, `<a href>`, `<url>`, and bare autolinks.
+Applies to `[text](url)`, `<a href>`, `<url>`, and bare autolinks (`https://…`, `www.…`).
 
-| Mode | Behavior |
+**Classification** (`src/links/classify-link.ts`), using the URL evaluator:
+
+| Class | Meaning |
 |---|---|
-| `allow` | Keep links that pass the URL evaluator's scheme/host checks; others become text. |
-| `warn` | Keep all https links; append a visible `⚠️` marker to links not on the allowlist. |
-| `defang_untrusted` | Allowlisted links kept (canonical). Others replaced by `text (` + code span of the **defanged** URL + `)`. |
-| `strip_untrusted` | Allowlisted links kept; others replaced by their text only. |
+| `trusted` | The evaluator allows the URL (allowlist match). Emitted in canonical form. |
+| `untrusted_web` | Rejected by the allowlist, but a clean `http(s)` URL. Canonicalized to the parser's own `href` after steps 1, 2, 5 (absolute only), 6, a scheme check (`http`/`https` always acceptable for links), and step 8 (no credentials, IP hosts, or trailing dot). This is deliberately looser than image evaluation (percent-encoding and non-ASCII are fine) because the emitted value is the browser's own view and a link needs a click. |
+| `unusable` | Anything else: `javascript:`, `data:`, relative, credentials, IP hosts, malformed. |
 
-**Defang:** scheme `http`→`hxxp`, `https`→`hxxps`; each `.` in the host → `[.]`; whole URL placed in a code span. Links with a non-https scheme (`javascript:` etc.) always become text only.
+**Modes** (`src/links/apply-link-mode.ts`) return structured parts (`text`, `code`, `link`) rather than strings, so the Markdown and HTML passes build real nodes and the serializers do the escaping.
+
+| Mode | `trusted` | `untrusted_web` | `unusable` |
+|---|---|---|---|
+| `allow` | link | link | text |
+| `warn` | link | link followed by a visible ` ⚠️` | text |
+| `defang_untrusted` | link | `text (` + code span of the defanged URL + `)`; for an autolink, only the defanged code span | text |
+| `strip_untrusted` | link | text only; for an autolink, nothing | text |
+
+Rules that apply to every text-only outcome:
+
+- **Defang.** `http`→`hxxp`, `https`→`hxxps`, each `.` in the host → `[.]`; other schemes get `[:]`; characters outside printable ASCII are shown as `<U+XXXX>`; a protocol-relative `//host` is defanged too.
+- **No re-linking.** Link text is passed through `defangText`, which defangs any URL-looking substring. Without this, unwrapping `[https://evil.com](https://evil.com)` into plain text would let a renderer auto-link it again.
+- **An autolink in `strip_untrusted` mode is removed entirely**, because its text is the URL.
+
+## 10a. Audit events
+
+Every strip, replace, defang, rewrite, made-inert, drop, and abort is reported to an `AuditSink` as `{category, action, vector?, reason?, detail?, subject?}`. `subject` and `detail` come from attacker-influenced input, so they are truncated to 120 characters and control characters are replaced before they reach a sink; `ConsoleSink` writes JSON lines so a newline cannot forge a log entry. A sink that throws is ignored (`recordSafely`): a failing log destination must never change, block, or leak output. `MemorySink` is bounded and counts what it dropped.
 
 ## 11. Streaming: incremental prefix-reparse
 
